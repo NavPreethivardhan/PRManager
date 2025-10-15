@@ -1,0 +1,22 @@
+{
+  "name": "PR Copilot",
+  "description": "AI-Powered PR Management System for maintainer workflow optimization",
+  "url": "https://your-domain.com",
+  "hook_attributes": {
+    "url": "https://your-domain.com/webhooks/github",
+    "content_type": "json"
+  },
+  "redirect_url": "https://your-domain.com/setup",
+  "public": true,
+  "default_permissions": {
+    "contents": "read",
+    "metadata": "read",
+    "pull_requests": "write",
+    "issues": "write"
+  },
+  "default_events": [
+    "pull_request",
+    "issue_comment"
+  ],
+  "installations_url": "https://api.github.com/app/installations"
+}
