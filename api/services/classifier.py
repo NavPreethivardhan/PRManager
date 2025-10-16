@@ -5,8 +5,9 @@ PR Classification Service - Core AI logic for analyzing and categorizing PRs
 import json
 import logging
 from typing import Dict, Any
-import openai
 import os
+
+from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +20,7 @@ class PRClassifier:
         if not self.openai_api_key:
             raise ValueError("OPENAI_API_KEY environment variable is required")
         
-        openai.api_key = self.openai_api_key
+        self.client = OpenAI(api_key=self.openai_api_key)
     
     def classify_pr(self, pr_data: dict, pr_context: dict = None) -> Dict[str, Any]:
         """
@@ -40,23 +41,23 @@ class PRClassifier:
         prompt = self._create_classification_prompt(analysis_data)
         
         try:
-            # Call OpenAI API
-            response = openai.ChatCompletion.create(
-                model="gpt-4o-mini",  # Fast and cost-effective for MVP
+            # Call OpenAI API (v1 SDK)
+            response = self.client.chat.completions.create(
+                model="gpt-4o-mini",
                 messages=[
                     {
-                        "role": "system", 
-                        "content": "You are a PR triage expert with deep knowledge of software development workflows. Analyze pull requests and provide structured, actionable insights."
+                        "role": "system",
+                        "content": "You are a PR triage expert with deep knowledge of software development workflows. Analyze pull requests and provide structured, actionable insights.",
                     },
-                    {"role": "user", "content": prompt}
+                    {"role": "user", "content": prompt},
                 ],
+                temperature=0.1,
                 response_format={"type": "json_object"},
-                temperature=0.1,  # Low temperature for consistent results
-                max_tokens=1000
+                max_tokens=1000,
             )
             
-            # Parse the response
-            result = json.loads(response.choices[0].message.content)
+            content = response.choices[0].message.content or "{}"
+            result = json.loads(content)
             
             # Validate and clean the result
             validated_result = self._validate_result(result)
@@ -131,13 +132,13 @@ Also assign a priority score (0-100) based on:
 - Consider impact, urgency, and maintainer workload
 
 Provide your analysis in this exact JSON format:
-{{
+{
   "classification": "exact category name",
   "confidence": 0.85,
   "priority_score": 75,
   "reasoning": "Brief explanation of why this classification was chosen",
   "suggested_action": "Specific action the maintainer should take next"
-}}"""
+}"""
     
     def _validate_result(self, result: dict) -> dict:
         """Validate and clean the classification result"""
@@ -157,11 +158,19 @@ Provide your analysis in this exact JSON format:
         
         # Ensure confidence is between 0 and 1
         confidence = result.get("confidence", 0.5)
-        result["confidence"] = max(0.0, min(1.0, float(confidence)))
+        try:
+            confidence = float(confidence)
+        except Exception:
+            confidence = 0.5
+        result["confidence"] = max(0.0, min(1.0, confidence))
         
         # Ensure priority score is between 0 and 100
         priority = result.get("priority_score", 50)
-        result["priority_score"] = max(0, min(100, int(priority)))
+        try:
+            priority = int(priority)
+        except Exception:
+            priority = 50
+        result["priority_score"] = max(0, min(100, priority))
         
         # Ensure required fields exist
         result["reasoning"] = result.get("reasoning", "Analysis completed")
