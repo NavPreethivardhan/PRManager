@@ -53,7 +53,7 @@ app.add_middleware(
 # Include routers
 app.include_router(health.router, prefix="/health", tags=["health"])
 app.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
-app.include_router(auth_routes.router, tags=["auth"])  # exposes /setup and /auth/callback
+app.include_router(auth_routes.router, prefix="/auth", tags=["auth"])  # exposes /auth, /auth/callback, /auth/setup
 
 
 @app.get("/")
