@@ -2,7 +2,7 @@
 Database configuration and models
 """
 
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, Boolean, Float
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, Boolean, Float, BigInteger
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.sql import func
@@ -40,7 +40,7 @@ class PullRequest(Base):
     id = Column(Integer, primary_key=True, index=True)
     
     # GitHub PR identifiers
-    github_pr_id = Column(Integer, unique=True, index=True)
+    github_pr_id = Column(BigInteger, unique=True, index=True)
     repository_full_name = Column(String, index=True)  # owner/repo
     pr_number = Column(Integer, index=True)
     

@@ -45,22 +45,43 @@ except Exception:
             }
         )
 
+# Auto-run Alembic migrations on startup
+def run_db_migrations() -> None:
+    try:
+        from alembic.config import Config
+        from alembic import command
+        import os
+
+        # Point Alembic at the local config file
+        alembic_cfg = Config("alembic.ini")
+
+        # Ensure DATABASE_URL is visible to Alembic env.py (it reads from env)
+        # Then upgrade to head
+        command.upgrade(alembic_cfg, "head")
+        print("✅ Alembic migrations applied (head)")
+    except Exception as e:
+        # Don't crash the app if migrations fail; just log
+        print(f"⚠️  Alembic migration skipped or failed: {e}")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan events"""
     # Startup
     print("🚀 Starting PR Copilot...")
-    
-    # Create database tables
+
+    # Apply DB migrations
+    run_db_migrations()
+
+    # Create database tables (no-op if already created/migrated)
     Base.metadata.create_all(bind=engine)
-    
+
     # Start Celery worker (in production, this would be separate)
     print("✅ Database initialized")
     print("✅ Celery worker ready")
-    
+
     yield
-    
+
     # Shutdown
     print("🛑 Shutting down PR Copilot...")
 
