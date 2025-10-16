@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 import uvicorn
 
 from api.routes import webhooks, health
-from api.routes import auth as auth_routes
+from api.routes.auth import router as auth_router
 from api.database import engine, Base
 from workers.celery_app import celery_app
 
@@ -53,7 +53,7 @@ app.add_middleware(
 # Include routers
 app.include_router(health.router, prefix="/health", tags=["health"])
 app.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
-app.include_router(auth_routes.router, prefix="/auth", tags=["auth"])  # exposes /auth, /auth/callback, /auth/setup
+app.include_router(auth_router, prefix="/auth", tags=["auth"])  # exposes /auth, /auth/callback, /auth/setup
 
 
 @app.get("/")
