@@ -4,6 +4,7 @@ GitHub webhook handlers
 
 import json
 import logging
+import os
 from fastapi import APIRouter, Request, HTTPException, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
@@ -14,6 +15,8 @@ from workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+SINGLE_PROCESS = os.getenv("SINGLE_PROCESS", "false").lower() == "true"
 
 
 @router.post("/github")
@@ -72,20 +75,28 @@ async def _handle_pull_request_event(payload: dict, installation_id: int | None,
         # Attach installation_id for downstream
         pr_data["_installation_id"] = installation_id
         
-        # Queue the PR for analysis
-        task = process_pull_request.delay(pr_data)
-        
-        logger.info(f"Queued PR analysis task: {task.id}")
-        
-        return JSONResponse(
-            status_code=202,
-            content={
-                "status": "queued",
-                "task_id": task.id,
-                "action": action,
-                "pr_number": pr_data.get("number")
-            }
-        )
+        if SINGLE_PROCESS:
+            logger.info("SINGLE_PROCESS mode enabled; processing PR inline")
+            # Run synchronously in-process
+            try:
+                result = process_pull_request.run(pr_data)
+                return JSONResponse(status_code=200, content={"status": "processed", **(result or {})})
+            except Exception as e:
+                logger.error(f"Inline processing failed: {e}")
+                raise HTTPException(status_code=500, detail="Processing failed")
+        else:
+            # Queue the PR for analysis via Celery
+            task = process_pull_request.delay(pr_data)
+            logger.info(f"Queued PR analysis task: {task.id}")
+            return JSONResponse(
+                status_code=202,
+                content={
+                    "status": "queued",
+                    "task_id": task.id,
+                    "action": action,
+                    "pr_number": pr_data.get("number")
+                }
+            )
     else:
         logger.info(f"Ignoring PR action: {action}")
         return JSONResponse(
@@ -184,20 +195,27 @@ async def _handle_triage_command(payload: dict, installation_id: int | None, db:
         "_installation_id": installation_id,
     }
     
-    # Queue re-analysis
-    task = process_pull_request.delay(pr_data)
-    
-    logger.info(f"Queued re-analysis task for PR #{pr_data['number']}: {task.id}")
-    
-    return JSONResponse(
-        status_code=202,
-        content={
-            "status": "queued",
-            "task_id": task.id,
-            "action": "re_analyze",
-            "pr_number": pr_data["number"]
-        }
-    )
+    if SINGLE_PROCESS:
+        logger.info("SINGLE_PROCESS mode enabled; processing /triage inline")
+        try:
+            result = process_pull_request.run(pr_data)
+            return JSONResponse(status_code=200, content={"status": "processed", **(result or {})})
+        except Exception as e:
+            logger.error(f"Inline processing failed: {e}")
+            raise HTTPException(status_code=500, detail="Processing failed")
+    else:
+        # Queue re-analysis
+        task = process_pull_request.delay(pr_data)
+        logger.info(f"Queued re-analysis task for PR #{pr_data['number']}: {task.id}")
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "queued",
+                "task_id": task.id,
+                "action": "re_analyze",
+                "pr_number": pr_data["number"]
+            }
+        )
 
 
 async def _handle_help_command(payload: dict, db: Session) -> JSONResponse:
