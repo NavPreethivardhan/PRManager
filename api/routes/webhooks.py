@@ -40,12 +40,13 @@ async def handle_github_webhook(request: Request, db: Session = Depends(get_db))
         
         # Parse payload
         payload = json.loads(body.decode('utf-8'))
+        installation_id = payload.get("installation", {}).get("id")
         
         # Handle different event types
         if event_type == "pull_request":
-            return await _handle_pull_request_event(payload, db)
+            return await _handle_pull_request_event(payload, installation_id, db)
         elif event_type == "issue_comment":
-            return await _handle_issue_comment_event(payload, db)
+            return await _handle_issue_comment_event(payload, installation_id, db)
         else:
             logger.info(f"Ignoring webhook event type: {event_type}")
             return {"status": "ignored", "event_type": event_type}
@@ -58,7 +59,7 @@ async def handle_github_webhook(request: Request, db: Session = Depends(get_db))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-async def _handle_pull_request_event(payload: dict, db: Session) -> JSONResponse:
+async def _handle_pull_request_event(payload: dict, installation_id: int | None, db: Session) -> JSONResponse:
     """Handle pull request webhook events"""
     
     action = payload.get("action")
@@ -68,6 +69,9 @@ async def _handle_pull_request_event(payload: dict, db: Session) -> JSONResponse
     
     # Only process opened and synchronize events for now
     if action in ["opened", "synchronize"]:
+        # Attach installation_id for downstream
+        pr_data["_installation_id"] = installation_id
+        
         # Queue the PR for analysis
         task = process_pull_request.delay(pr_data)
         
@@ -90,12 +94,13 @@ async def _handle_pull_request_event(payload: dict, db: Session) -> JSONResponse
         )
 
 
-async def _handle_issue_comment_event(payload: dict, db: Session) -> JSONResponse:
+async def _handle_issue_comment_event(payload: dict, installation_id: int | None, db: Session) -> JSONResponse:
     """Handle issue comment events (for bot commands)"""
     
     action = payload.get("action")
     comment = payload.get("comment", {})
     issue = payload.get("issue", {})
+    repository = payload.get("repository", {})
     
     # Only process created comments
     if action != "created":
@@ -124,7 +129,7 @@ async def _handle_issue_comment_event(payload: dict, db: Session) -> JSONRespons
     
     # Handle the command
     if command["action"] == "triage":
-        return await _handle_triage_command(payload, db)
+        return await _handle_triage_command(payload, installation_id, db)
     elif command["action"] == "help":
         return await _handle_help_command(payload, db)
     else:
@@ -150,7 +155,7 @@ def _parse_bot_command(comment_body: str) -> dict:
     return None
 
 
-async def _handle_triage_command(payload: dict, db: Session) -> JSONResponse:
+async def _handle_triage_command(payload: dict, installation_id: int | None, db: Session) -> JSONResponse:
     """Handle @PRCoPilot /triage command"""
     
     issue = payload.get("issue", {})
@@ -171,11 +176,12 @@ async def _handle_triage_command(payload: dict, db: Session) -> JSONResponse:
         "state": issue.get("state"),
         "user": {"login": issue.get("user", {}).get("login")},
         "head": {"repo": {"full_name": repository.get("full_name")}},
-        "additions": 0,  # Would need to fetch from GitHub API
+        "additions": 0,
         "deletions": 0,
         "changed_files": 0,
         "commits": 0,
-        "id": issue.get("id")
+        "id": issue.get("id"),
+        "_installation_id": installation_id,
     }
     
     # Queue re-analysis
@@ -197,34 +203,7 @@ async def _handle_triage_command(payload: dict, db: Session) -> JSONResponse:
 async def _handle_help_command(payload: dict, db: Session) -> JSONResponse:
     """Handle @PRCoPilot /help command"""
     
-    # Post help information as a comment
-    help_text = """## 🤖 PR Copilot Help
-
-**Available Commands:**
-- `@PRCoPilot /triage` - Re-analyze this PR
-- `@PRCoPilot /help` - Show this help message
-
-**What PR Copilot does:**
-- Automatically classifies PRs into categories (Ready to Merge, Needs Discussion, etc.)
-- Assigns priority scores (0-100) based on impact and urgency
-- Provides reasoning and suggested actions for maintainers
-- Helps prevent maintainer burnout through intelligent triage
-
-**Categories:**
-- ✅ **Ready to Merge** - All checks pass, no issues
-- 🏗️ **Needs Architecture Discussion** - Large/breaking changes
-- 🔧 **Needs Minor Fixes** - Small issues (tests, style, docs)
-- 👥 **Needs Mentor Support** - First-time contributor
-- 🤔 **Needs Maintainer Decision** - Policy/roadmap questions
-- ⏸️ **Blocked/Stale** - Conflicts, failing CI, inactive
-
----
-*Powered by [PR Copilot](https://github.com/your-org/pr-copilot)*"""
-    
-    # In a real implementation, you'd post this as a comment
-    # For MVP, we'll just return success
     logger.info("Help command received")
-    
     return JSONResponse(
         status_code=200,
         content={

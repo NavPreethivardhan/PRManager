@@ -25,6 +25,7 @@ def process_pull_request(self, pr_data: dict):
         pr_number = pr_data["number"]
         repo_full_name = pr_data["head"]["repo"]["full_name"]
         pr_id = pr_data["id"]
+        installation_id = pr_data.get("_installation_id")
         
         logger.info(f"Processing PR #{pr_number} in {repo_full_name}")
         
@@ -72,7 +73,10 @@ def process_pull_request(self, pr_data: dict):
             
             # Post comment to GitHub PR
             comment_body = _format_analysis_comment(analysis_result)
-            github_client.post_pr_comment(repo_full_name, pr_number, comment_body)
+            if installation_id:
+                github_client.post_pr_comment(installation_id, repo_full_name, pr_number, comment_body)
+            else:
+                logger.warning("No installation_id provided; cannot post comment")
             
             logger.info(f"Successfully processed PR #{pr_number}")
             
